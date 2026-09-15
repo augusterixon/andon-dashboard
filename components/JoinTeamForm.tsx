@@ -3,6 +3,10 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import {
+  notifyLocalAndon,
+  writeAndonConfiguredFlash,
+} from "@/lib/andon-local";
 import { writeSession } from "@/lib/session";
 
 type JoinResponse = {
@@ -10,6 +14,7 @@ type JoinResponse = {
   member_id: string;
   auth_token: string;
   member_name: string;
+  team_name: string;
   error?: string;
 };
 
@@ -45,6 +50,16 @@ export function JoinTeamForm({ initialCode }: { initialCode: string }) {
         auth_token: data.auth_token,
         member_name: data.member_name,
       });
+
+      const configured = await notifyLocalAndon({
+        team_id: data.team_id,
+        member_id: data.member_id,
+        auth_token: data.auth_token,
+        team_name: data.team_name,
+      });
+      if (configured) {
+        writeAndonConfiguredFlash();
+      }
 
       router.push(`/dashboard?team_id=${data.team_id}`);
     } catch (err) {

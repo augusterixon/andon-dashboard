@@ -111,8 +111,8 @@ export async function joinTeam(inviteCode: string, name?: string) {
     throw new HttpError(400, "Invite code must be 8 characters");
   }
 
-  const { rows: teams } = await sql<{ id: string }>`
-    SELECT id FROM teams WHERE invite_code = ${code}
+  const { rows: teams } = await sql<{ id: string; name: string }>`
+    SELECT id, name FROM teams WHERE invite_code = ${code}
   `;
 
   const team = teams[0];
@@ -146,6 +146,7 @@ export async function joinTeam(inviteCode: string, name?: string) {
     member_id: member.id,
     auth_token: member.auth_token,
     member_name: member.name,
+    team_name: team.name,
   };
 }
 

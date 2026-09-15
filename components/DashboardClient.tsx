@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { consumeAndonConfiguredFlash } from "@/lib/andon-local";
 
 type AndonState = "green" | "yellow" | "red";
 
@@ -42,7 +43,15 @@ export function DashboardClient({ teamId }: { teamId: string }) {
   const [members, setMembers] = useState<Member[] | null>(null);
   const [teamName, setTeamName] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [andonConfigured, setAndonConfigured] = useState(false);
   const [, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!consumeAndonConfiguredFlash()) return;
+    setAndonConfigured(true);
+    const hide = window.setTimeout(() => setAndonConfigured(false), 4000);
+    return () => window.clearTimeout(hide);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -88,6 +97,9 @@ export function DashboardClient({ teamId }: { teamId: string }) {
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold">{teamName || "Team Status"}</h1>
+      {andonConfigured ? (
+        <p className="text-sm text-emerald-400">Andon is tracking this team</p>
+      ) : null}
       {error ? <p className="text-sm text-red-400">{error}</p> : null}
       {members.length === 0 ? (
         <p className="text-sm text-zinc-500">No members yet</p>
