@@ -71,13 +71,13 @@ export function JoinTeamForm({ initialCode }: { initialCode: string }) {
   return (
     <form
       onSubmit={onSubmit}
-      className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-6"
+      className="rounded-2xl border border-border bg-surface p-6"
     >
       <h1 className="text-xl font-semibold">Join a team</h1>
-      <p className="mt-2 text-sm text-zinc-400">
+      <p className="mt-2 text-sm text-muted">
         Paste the invite code. Name is optional — we can make one up.
       </p>
-      <label className="mt-6 block text-sm text-zinc-300">
+      <label className="mt-6 block text-sm text-foreground/80">
         Invite code
         <input
           value={inviteCode}
@@ -85,30 +85,30 @@ export function JoinTeamForm({ initialCode }: { initialCode: string }) {
           maxLength={8}
           required
           placeholder="ABC12XYZ"
-          className="mt-2 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono tracking-[0.2em] text-zinc-100 outline-none placeholder:tracking-normal placeholder:text-zinc-600 focus:border-zinc-500"
+          className="mt-2 w-full rounded-xl border border-border bg-background px-3 py-2 font-mono tracking-[0.2em] text-foreground outline-none placeholder:tracking-normal placeholder:text-muted/70 focus:border-accent"
         />
       </label>
-      <label className="mt-4 block text-sm text-zinc-300">
+      <label className="mt-4 block text-sm text-foreground/80">
         Your name
         <input
           value={name}
           onChange={(event) => setName(event.target.value)}
           maxLength={40}
           placeholder="Member-3847"
-          className="mt-2 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-zinc-500"
+          className="mt-2 w-full rounded-xl border border-border bg-background px-3 py-2 text-foreground outline-none placeholder:text-muted/70 focus:border-accent"
         />
       </label>
-      {error ? <p className="mt-3 text-sm text-red-400">{error}</p> : null}
+      {error ? <p className="mt-3 text-sm text-andon-red">{error}</p> : null}
       <button
         type="submit"
         disabled={pending}
-        className="mt-6 w-full rounded-lg bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-950 hover:bg-white disabled:opacity-60"
+        className="mt-6 w-full rounded-xl bg-foreground px-4 py-2 text-sm font-medium text-background hover:opacity-90 disabled:opacity-60"
       >
         {pending ? "Joining…" : "Join team"}
       </button>
-      <p className="mt-4 text-center text-sm text-zinc-500">
+      <p className="mt-4 text-center text-sm text-muted">
         Need a new board?{" "}
-        <Link href="/" className="text-zinc-200 underline-offset-2 hover:underline">
+        <Link href="/" className="text-foreground underline-offset-2 hover:underline">
           Create a team
         </Link>
       </p>

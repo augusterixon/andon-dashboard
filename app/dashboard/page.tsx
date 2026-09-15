@@ -11,14 +11,14 @@ export default async function DashboardPage({
 
   if (!teamId) {
     return (
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-6">
+      <div className="rounded-2xl border border-border bg-surface p-6">
         <h1 className="text-xl font-semibold">Dashboard</h1>
-        <p className="mt-2 text-sm text-zinc-400">
+        <p className="mt-2 text-sm text-muted">
           Missing team_id. Create or join a team first.
         </p>
         <Link
           href="/"
-          className="mt-6 inline-block text-sm text-zinc-200 underline-offset-2 hover:underline"
+          className="mt-6 inline-block text-sm text-foreground underline-offset-2 hover:underline"
         >
           Go home
         </Link>

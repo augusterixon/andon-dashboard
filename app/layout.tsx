@@ -24,13 +24,20 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full bg-zinc-950 text-zinc-100">
-        <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col px-4 py-6 sm:px-6">
-          <header className="mb-8 flex items-baseline justify-between gap-4">
-            <Link href="/" className="text-sm font-medium tracking-wide text-zinc-200">
-              Andon
+      <body className="min-h-full bg-background text-foreground">
+        <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col px-5 py-8 sm:px-8">
+          <header className="mb-10 flex items-center justify-between gap-4">
+            <Link href="/" className="flex items-center gap-3">
+              <span className="flex items-center gap-1" aria-hidden="true">
+                <span className="h-2 w-2 rounded-full bg-andon-green shadow-[0_0_10px_var(--green)]" />
+                <span className="h-2 w-2 rounded-full bg-andon-yellow shadow-[0_0_10px_var(--yellow)]" />
+                <span className="h-2 w-2 rounded-full bg-andon-red shadow-[0_0_10px_var(--red)]" />
+              </span>
+              <span className="text-sm font-semibold tracking-[0.22em] text-foreground uppercase">
+                Andon
+              </span>
             </Link>
-            <p className="text-xs text-zinc-500">Team status board</p>
+            <p className="text-xs tracking-wide text-muted">Floor status</p>
           </header>
           <main className="flex-1">{children}</main>
         </div>

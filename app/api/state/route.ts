@@ -8,7 +8,28 @@ type UpdateStateBody = {
   member_id?: string;
   state?: string;
   auth_token?: string;
+  timestamp?: string | number;
 };
+
+function parseTimestamp(value: string | number | undefined): Date | undefined {
+  if (value == null || value === "") return undefined;
+
+  const date =
+    typeof value === "number"
+      ? new Date(value > 1e12 ? value : value * 1000)
+      : new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    throw new HttpError(400, "timestamp must be a valid ISO-8601 date");
+  }
+
+  const skewMs = 5 * 60 * 1000;
+  if (date.getTime() > Date.now() + skewMs) {
+    throw new HttpError(400, "timestamp cannot be in the future");
+  }
+
+  return date;
+}
 
 export async function POST(request: Request) {
   try {
@@ -29,6 +50,7 @@ export async function POST(request: Request) {
       memberId,
       state: body.state,
       authToken,
+      timestamp: parseTimestamp(body.timestamp),
     });
 
     return NextResponse.json({ ok: true });

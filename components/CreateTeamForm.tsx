@@ -49,25 +49,25 @@ export function CreateTeamForm() {
     const joinHref = `/join?code=${created.invite_code}`;
 
     return (
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-6">
+      <div className="rounded-2xl border border-border bg-surface p-6">
         <h1 className="text-xl font-semibold">Team created</h1>
-        <p className="mt-2 text-sm text-zinc-400">
+        <p className="mt-2 text-sm text-muted">
           Share this code so others can join.
         </p>
-        <p className="mt-6 font-mono text-3xl tracking-[0.2em] text-zinc-50">
+        <p className="mt-6 font-mono text-3xl tracking-[0.2em] text-foreground">
           {created.invite_code}
         </p>
         <div className="mt-6 flex flex-col gap-3 sm:flex-row">
           <button
             type="button"
             onClick={() => copyInviteLink(created.invite_code)}
-            className="rounded-lg border border-zinc-700 px-4 py-2 text-sm hover:bg-zinc-800"
+            className="rounded-xl border border-border px-4 py-2 text-sm hover:bg-surface-2"
           >
             {copied ? "Copied" : "Copy invite link"}
           </button>
           <Link
             href={joinHref}
-            className="rounded-lg bg-zinc-100 px-4 py-2 text-center text-sm font-medium text-zinc-950 hover:bg-white"
+            className="rounded-xl bg-foreground px-4 py-2 text-center text-sm font-medium text-background hover:opacity-90"
           >
             Join this team
           </Link>
@@ -79,13 +79,13 @@ export function CreateTeamForm() {
   return (
     <form
       onSubmit={onSubmit}
-      className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-6"
+      className="rounded-2xl border border-border bg-surface p-6"
     >
       <h1 className="text-xl font-semibold">Create a team</h1>
-      <p className="mt-2 text-sm text-zinc-400">
+      <p className="mt-2 text-sm text-muted">
         You&apos;ll get an 8-character invite code to share.
       </p>
-      <label className="mt-6 block text-sm text-zinc-300">
+      <label className="mt-6 block text-sm text-foreground/80">
         Team name
         <input
           value={name}
@@ -93,20 +93,20 @@ export function CreateTeamForm() {
           maxLength={80}
           required
           placeholder="Team name"
-          className="mt-2 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-zinc-500"
+          className="mt-2 w-full rounded-xl border border-border bg-background px-3 py-2 text-foreground outline-none placeholder:text-muted/70 focus:border-accent"
         />
       </label>
-      {error ? <p className="mt-3 text-sm text-red-400">{error}</p> : null}
+      {error ? <p className="mt-3 text-sm text-andon-red">{error}</p> : null}
       <button
         type="submit"
         disabled={pending}
-        className="mt-6 w-full rounded-lg bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-950 hover:bg-white disabled:opacity-60"
+        className="mt-6 w-full rounded-xl bg-foreground px-4 py-2 text-sm font-medium text-background hover:opacity-90 disabled:opacity-60"
       >
         {pending ? "Creating…" : "Create team"}
       </button>
-      <p className="mt-4 text-center text-sm text-zinc-500">
+      <p className="mt-4 text-center text-sm text-muted">
         Already have a code?{" "}
-        <Link href="/join" className="text-zinc-200 underline-offset-2 hover:underline">
+        <Link href="/join" className="text-foreground underline-offset-2 hover:underline">
           Join a team
         </Link>
       </p>

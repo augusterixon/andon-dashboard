@@ -68,13 +68,80 @@ export async function ensureSchema() {
       id SERIAL PRIMARY KEY,
       member_id UUID NOT NULL REFERENCES members(id) ON DELETE CASCADE,
       state TEXT NOT NULL CHECK (state IN ('green', 'yellow', 'red')),
-      duration_seconds INTEGER NOT NULL,
-      ended_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      started_at TIMESTAMPTZ NOT NULL,
+      ended_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      duration_seconds INTEGER NOT NULL
     )
   `;
 
+  await sql`ALTER TABLE state_log ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ`;
+  await sql`
+    UPDATE state_log
+    SET started_at = ended_at - (duration_seconds * INTERVAL '1 second')
+    WHERE started_at IS NULL
+  `;
+  await sql`ALTER TABLE state_log ALTER COLUMN started_at SET DEFAULT NOW()`;
+  await sql`ALTER TABLE state_log ALTER COLUMN started_at SET NOT NULL`;
+
   await sql`CREATE INDEX IF NOT EXISTS members_team_id_idx ON members (team_id)`;
   await sql`CREATE INDEX IF NOT EXISTS state_log_member_id_idx ON state_log (member_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS state_log_started_at_idx ON state_log (started_at)`;
+  await sql`CREATE INDEX IF NOT EXISTS state_log_ended_at_idx ON state_log (ended_at)`;
+
+  await sql`DROP VIEW IF EXISTS monthly_stats`;
+  await sql`DROP VIEW IF EXISTS daily_stats`;
+
+  await sql`
+    CREATE VIEW daily_stats AS
+    SELECT
+      m.id AS member_id,
+      m.team_id,
+      m.name AS member_name,
+      d.day,
+      COALESCE(SUM(d.yellow_seconds), 0)::bigint AS total_yellow,
+      COALESCE(SUM(d.red_seconds), 0)::bigint AS total_red,
+      COALESCE(SUM(d.green_seconds), 0)::bigint AS total_green
+    FROM members m
+    JOIN (
+      SELECT
+        sl.member_id,
+        gs::date AS day,
+        CASE WHEN sl.state = 'yellow' THEN clipped.seconds ELSE 0 END AS yellow_seconds,
+        CASE WHEN sl.state = 'red' THEN clipped.seconds ELSE 0 END AS red_seconds,
+        CASE WHEN sl.state = 'green' THEN clipped.seconds ELSE 0 END AS green_seconds
+      FROM state_log sl
+      CROSS JOIN LATERAL generate_series(
+        (sl.started_at AT TIME ZONE 'UTC')::date,
+        (sl.ended_at AT TIME ZONE 'UTC')::date,
+        INTERVAL '1 day'
+      ) AS gs
+      CROSS JOIN LATERAL (
+        SELECT GREATEST(
+          0,
+          FLOOR(EXTRACT(EPOCH FROM (
+            LEAST(sl.ended_at, ((gs::date + 1) AT TIME ZONE 'UTC'))
+            - GREATEST(sl.started_at, (gs::date AT TIME ZONE 'UTC'))
+          )))
+        )::int AS seconds
+      ) clipped
+    ) d ON d.member_id = m.id
+    GROUP BY m.id, m.team_id, m.name, d.day
+  `;
+
+  await sql`
+    CREATE VIEW monthly_stats AS
+    SELECT
+      member_id,
+      team_id,
+      member_name,
+      EXTRACT(YEAR FROM day)::int AS year,
+      EXTRACT(MONTH FROM day)::int AS month,
+      SUM(total_yellow)::bigint AS total_yellow,
+      SUM(total_red)::bigint AS total_red,
+      SUM(total_green)::bigint AS total_green
+    FROM daily_stats
+    GROUP BY member_id, team_id, member_name, EXTRACT(YEAR FROM day), EXTRACT(MONTH FROM day)
+  `;
 
   schemaReady = true;
 }
@@ -150,11 +217,24 @@ export async function joinTeam(inviteCode: string, name?: string) {
   };
 }
 
+export async function assertTeamExists(teamId: string) {
+  await ensureSchema();
+
+  const { rows } = await sql<{ id: string }>`
+    SELECT id FROM teams WHERE id = ${teamId}
+  `;
+
+  if (!rows[0]) {
+    throw new HttpError(404, "Team not found");
+  }
+}
+
 export async function updateMemberState(input: {
   teamId: string;
   memberId: string;
   state: AndonState;
   authToken: string;
+  timestamp?: Date;
 }) {
   await ensureSchema();
 
@@ -180,11 +260,13 @@ export async function updateMemberState(input: {
   `;
 
   const currentRow = current[0];
+  const endedAt = input.timestamp ?? new Date();
+  const endedAtIso = endedAt.toISOString();
 
   if (!currentRow) {
     await sql`
-      INSERT INTO current_state (member_id, state)
-      VALUES (${input.memberId}, ${input.state})
+      INSERT INTO current_state (member_id, state, updated_at)
+      VALUES (${input.memberId}, ${input.state}, ${endedAtIso})
     `;
     return;
   }
@@ -193,19 +275,29 @@ export async function updateMemberState(input: {
     return;
   }
 
-  const startedAt = new Date(currentRow.updated_at).getTime();
-  const durationSeconds = Number.isNaN(startedAt)
+  const startedAt = new Date(currentRow.updated_at);
+  const startedMs = startedAt.getTime();
+  const startedAtIso = Number.isNaN(startedMs)
+    ? endedAtIso
+    : startedAt.toISOString();
+  const durationSeconds = Number.isNaN(startedMs)
     ? 0
-    : Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+    : Math.max(0, Math.floor((endedAt.getTime() - startedMs) / 1000));
 
   await sql`
-    INSERT INTO state_log (member_id, state, duration_seconds)
-    VALUES (${input.memberId}, ${currentRow.state}, ${durationSeconds})
+    INSERT INTO state_log (member_id, state, started_at, ended_at, duration_seconds)
+    VALUES (
+      ${input.memberId},
+      ${currentRow.state},
+      ${startedAtIso},
+      ${endedAtIso},
+      ${durationSeconds}
+    )
   `;
 
   await sql`
     UPDATE current_state
-    SET state = ${input.state}, updated_at = NOW()
+    SET state = ${input.state}, updated_at = ${endedAtIso}
     WHERE member_id = ${input.memberId}
   `;
 }

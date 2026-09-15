@@ -29,6 +29,33 @@ export type TeamStatus = {
   members: MemberStatus[];
 };
 
+export type MemberTimeStats = {
+  member_id: string;
+  name: string;
+  state: AndonState;
+  yellow_seconds: number;
+  red_seconds: number;
+  green_seconds: number;
+};
+
+export type LeaderboardPeriod = "today" | "month";
+
+export type LeaderboardEntry = {
+  rank: number;
+  member_id: string;
+  name: string;
+  yellow_seconds: number;
+  red_seconds: number;
+  green_seconds: number;
+  working_seconds: number;
+};
+
+export type Leaderboard = {
+  period: LeaderboardPeriod;
+  waiting: LeaderboardEntry[];
+  working: LeaderboardEntry[];
+};
+
 export function isAndonState(value: unknown): value is AndonState {
   return (
     typeof value === "string" &&
