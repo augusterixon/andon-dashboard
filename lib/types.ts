@@ -29,6 +29,20 @@ export type TeamStatus = {
   members: MemberStatus[];
 };
 
+export type WorkPrompt = {
+  started_at: string;
+  ended_at: string | null;
+};
+
+export type WorkSession = {
+  session_id: string;
+  started_at: string;
+  ended_at: string | null;
+  duration_seconds: number;
+  prompt_count: number;
+  prompts: WorkPrompt[];
+};
+
 export type MemberTimeStats = {
   member_id: string;
   name: string;
@@ -36,6 +50,11 @@ export type MemberTimeStats = {
   yellow_seconds: number;
   red_seconds: number;
   green_seconds: number;
+  working_seconds: number;
+  working_sessions: number;
+  avg_session_seconds: number;
+  last_working_at: string | null;
+  sessions: WorkSession[];
 };
 
 export type LeaderboardPeriod = "today" | "month";
@@ -44,16 +63,16 @@ export type LeaderboardEntry = {
   rank: number;
   member_id: string;
   name: string;
-  yellow_seconds: number;
-  red_seconds: number;
-  green_seconds: number;
+  state: AndonState;
   working_seconds: number;
+  working_sessions: number;
+  avg_session_seconds: number;
+  sessions: WorkSession[];
 };
 
 export type Leaderboard = {
   period: LeaderboardPeriod;
-  waiting: LeaderboardEntry[];
-  working: LeaderboardEntry[];
+  entries: LeaderboardEntry[];
 };
 
 export function isAndonState(value: unknown): value is AndonState {

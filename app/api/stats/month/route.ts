@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getMonthStats } from "@/lib/analytics";
+import { getMonthStats, serializeMemberStats } from "@/lib/analytics";
 import { handleRouteError, HttpError } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
@@ -28,14 +28,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       year,
       month,
-      members: members.map((member) => ({
-        member_id: member.member_id,
-        name: member.name,
-        state: member.state,
-        yellow_seconds: member.yellow_seconds,
-        red_seconds: member.red_seconds,
-        green_seconds: member.green_seconds,
-      })),
+      members: members.map(serializeMemberStats),
     });
   } catch (error) {
     return handleRouteError(error);

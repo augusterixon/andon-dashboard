@@ -6,6 +6,7 @@ import {
   generateMemberName,
   normalizeInviteCode,
 } from "@/lib/ids";
+import { backfillSessionIds, refreshMemberSessionIds } from "@/lib/sessions";
 import type { AndonState, MemberStatus, TeamStatus } from "@/lib/types";
 
 let schemaReady = false;
@@ -70,7 +71,8 @@ export async function ensureSchema() {
       state TEXT NOT NULL CHECK (state IN ('green', 'yellow', 'red')),
       started_at TIMESTAMPTZ NOT NULL,
       ended_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      duration_seconds INTEGER NOT NULL
+      duration_seconds INTEGER NOT NULL,
+      session_id UUID
     )
   `;
 
@@ -82,11 +84,13 @@ export async function ensureSchema() {
   `;
   await sql`ALTER TABLE state_log ALTER COLUMN started_at SET DEFAULT NOW()`;
   await sql`ALTER TABLE state_log ALTER COLUMN started_at SET NOT NULL`;
+  await sql`ALTER TABLE state_log ADD COLUMN IF NOT EXISTS session_id UUID`;
 
   await sql`CREATE INDEX IF NOT EXISTS members_team_id_idx ON members (team_id)`;
   await sql`CREATE INDEX IF NOT EXISTS state_log_member_id_idx ON state_log (member_id)`;
   await sql`CREATE INDEX IF NOT EXISTS state_log_started_at_idx ON state_log (started_at)`;
   await sql`CREATE INDEX IF NOT EXISTS state_log_ended_at_idx ON state_log (ended_at)`;
+  await sql`CREATE INDEX IF NOT EXISTS state_log_session_id_idx ON state_log (session_id)`;
 
   await sql`DROP VIEW IF EXISTS monthly_stats`;
   await sql`DROP VIEW IF EXISTS daily_stats`;
@@ -142,6 +146,8 @@ export async function ensureSchema() {
     FROM daily_stats
     GROUP BY member_id, team_id, member_name, EXTRACT(YEAR FROM day), EXTRACT(MONTH FROM day)
   `;
+
+  await backfillSessionIds();
 
   schemaReady = true;
 }
@@ -294,6 +300,8 @@ export async function updateMemberState(input: {
       ${durationSeconds}
     )
   `;
+
+  await refreshMemberSessionIds(input.memberId);
 
   await sql`
     UPDATE current_state

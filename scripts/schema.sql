@@ -25,13 +25,15 @@ CREATE TABLE IF NOT EXISTS state_log (
   state TEXT NOT NULL CHECK (state IN ('green', 'yellow', 'red')),
   started_at TIMESTAMPTZ NOT NULL,
   ended_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  duration_seconds INTEGER NOT NULL
+  duration_seconds INTEGER NOT NULL,
+  session_id UUID
 );
 
 CREATE INDEX IF NOT EXISTS members_team_id_idx ON members (team_id);
 CREATE INDEX IF NOT EXISTS state_log_member_id_idx ON state_log (member_id);
 CREATE INDEX IF NOT EXISTS state_log_started_at_idx ON state_log (started_at);
 CREATE INDEX IF NOT EXISTS state_log_ended_at_idx ON state_log (ended_at);
+CREATE INDEX IF NOT EXISTS state_log_session_id_idx ON state_log (session_id);
 
 CREATE OR REPLACE VIEW daily_stats AS
 SELECT

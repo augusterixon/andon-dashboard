@@ -97,7 +97,7 @@ async function main() {
   ]);
 
   const { rows: logs } = await sql`
-    SELECT name, state, duration_seconds, started_at, ended_at
+    SELECT name, state, duration_seconds, started_at, ended_at, session_id
     FROM state_log sl
     JOIN members m ON m.id = sl.member_id
     WHERE m.team_id = ${team.team_id}
@@ -106,8 +106,8 @@ async function main() {
   if (logs.length === 0) {
     throw new Error("state_log is empty — transitions were not recorded");
   }
-  if (logs.some((row) => Number(row.duration_seconds) <= 0)) {
-    throw new Error("expected positive durations on seeded transitions");
+  if (logs.some((row) => row.state === "yellow" && !row.session_id)) {
+    throw new Error("yellow state_log rows should have a session_id");
   }
 
   const today = await get(`/api/stats/today?team_id=${team.team_id}`);
@@ -122,21 +122,34 @@ async function main() {
   console.log("MONTH", JSON.stringify(month, null, 2));
   console.log("LEADERBOARD", JSON.stringify(board, null, 2));
 
-  const waiting = board.waiting.map((row) => row.name);
-  const working = board.working.map((row) => row.name);
+  const waiting = board.entries.map((row) => row.name);
   if (waiting[0] !== "Avery") {
-    throw new Error(`Expected Avery to lead waiting, got ${waiting.join(", ")}`);
-  }
-  if (working[0] !== "Blake") {
-    throw new Error(`Expected Blake to lead working, got ${working.join(", ")}`);
+    throw new Error(`Expected Avery to lead most active, got ${waiting.join(", ")}`);
   }
 
   const averyToday = today.members.find((row) => row.name === "Avery");
   if (!averyToday || averyToday.yellow_seconds < averyToday.green_seconds) {
-    throw new Error("Avery should have more yellow than green today");
+    throw new Error("Avery should have more working than ready today");
+  }
+  if (!averyToday.working_sessions || averyToday.working_sessions < 1) {
+    throw new Error("Avery should have at least one working session");
+  }
+  if (!Array.isArray(averyToday.sessions) || averyToday.sessions.length < 1) {
+    throw new Error("Today stats should include Avery's individual sessions");
+  }
+  if (!averyToday.sessions[0].prompt_count || averyToday.sessions[0].prompt_count < 1) {
+    throw new Error("Sessions should include a prompt count");
   }
 
-  console.log("OK waiting=", waiting.join(" > "), "working=", working.join(" > "));
+  const averyBoard = board.entries.find((row) => row.name === "Avery");
+  if (!averyBoard || averyBoard.working_sessions < 1) {
+    throw new Error("Leaderboard should include Avery's working sessions");
+  }
+  if (!Array.isArray(averyBoard.sessions) || averyBoard.sessions.length < 1) {
+    throw new Error("Leaderboard should include Avery's individual sessions");
+  }
+
+  console.log("OK most active=", waiting.join(" > "));
   console.log(`DASHBOARD ${BASE_URL}/dashboard?team_id=${team.team_id}`);
 }
 

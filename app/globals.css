@@ -48,3 +48,14 @@ body {
     transform: scale(0.92);
   }
 }
+
+button,
+a,
+[role="tab"],
+[role="button"] {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
