@@ -1,53 +1,81 @@
-CREATE TABLE IF NOT EXISTS teams (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name TEXT NOT NULL,
-  invite_code VARCHAR(8) NOT NULL UNIQUE,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+-- Session grouping migration for Neon / Vercel Postgres.
+-- Groups each member's state_log rows chronologically: a new session_id starts
+-- when 15+ minutes pass between consecutive state-change timestamps.
+-- session_start_time is the timestamp of the first row in that session.
 
-CREATE TABLE IF NOT EXISTS members (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  team_id UUID NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  auth_token TEXT NOT NULL UNIQUE,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+ALTER TABLE state_log ADD COLUMN IF NOT EXISTS session_id UUID;
+ALTER TABLE state_log ADD COLUMN IF NOT EXISTS session_start_time TIMESTAMPTZ;
 
-CREATE TABLE IF NOT EXISTS current_state (
-  member_id UUID PRIMARY KEY REFERENCES members(id) ON DELETE CASCADE,
-  state TEXT NOT NULL CHECK (state IN ('green', 'yellow', 'red')),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS state_log (
-  id SERIAL PRIMARY KEY,
-  member_id UUID NOT NULL REFERENCES members(id) ON DELETE CASCADE,
-  state TEXT NOT NULL CHECK (state IN ('green', 'yellow', 'red')),
-  started_at TIMESTAMPTZ NOT NULL,
-  ended_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  duration_seconds INTEGER NOT NULL,
-  session_id UUID,
-  session_start_time TIMESTAMPTZ
-);
+CREATE INDEX IF NOT EXISTS state_log_session_id_idx ON state_log (session_id);
+CREATE INDEX IF NOT EXISTS state_log_session_start_time_idx ON state_log (session_start_time);
+CREATE INDEX IF NOT EXISTS state_log_member_session_idx ON state_log (member_id, session_id);
 
 CREATE TABLE IF NOT EXISTS schema_migrations (
   id TEXT PRIMARY KEY,
   applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS members_team_id_idx ON members (team_id);
-CREATE INDEX IF NOT EXISTS state_log_member_id_idx ON state_log (member_id);
-CREATE INDEX IF NOT EXISTS state_log_started_at_idx ON state_log (started_at);
-CREATE INDEX IF NOT EXISTS state_log_ended_at_idx ON state_log (ended_at);
-CREATE INDEX IF NOT EXISTS state_log_session_id_idx ON state_log (session_id);
-CREATE INDEX IF NOT EXISTS state_log_session_start_time_idx ON state_log (session_start_time);
-CREATE INDEX IF NOT EXISTS state_log_member_session_idx ON state_log (member_id, session_id);
+UPDATE state_log
+SET session_id = NULL, session_start_time = NULL;
+
+WITH ordered AS (
+  SELECT
+    id,
+    member_id,
+    started_at,
+    LAG(started_at) OVER (
+      PARTITION BY member_id
+      ORDER BY started_at ASC, id ASC
+    ) AS prev_started_at
+  FROM state_log
+),
+flagged AS (
+  SELECT
+    id,
+    member_id,
+    started_at,
+    CASE
+      WHEN prev_started_at IS NULL THEN 1
+      WHEN started_at >= prev_started_at + INTERVAL '15 minutes' THEN 1
+      ELSE 0
+    END AS is_new
+  FROM ordered
+),
+numbered AS (
+  SELECT
+    id,
+    member_id,
+    started_at,
+    SUM(is_new) OVER (
+      PARTITION BY member_id
+      ORDER BY started_at ASC, id ASC
+    ) AS grp
+  FROM flagged
+),
+ids AS (
+  SELECT
+    member_id,
+    grp,
+    gen_random_uuid() AS session_id,
+    MIN(started_at) AS session_start_time
+  FROM numbered
+  GROUP BY member_id, grp
+)
+UPDATE state_log sl
+SET
+  session_id = ids.session_id,
+  session_start_time = ids.session_start_time
+FROM numbered
+JOIN ids
+  ON ids.member_id = numbered.member_id
+ AND ids.grp = numbered.grp
+WHERE sl.id = numbered.id;
 
 DROP VIEW IF EXISTS monthly_stats;
 DROP VIEW IF EXISTS daily_stats;
 DROP VIEW IF EXISTS working_sessions;
 
-CREATE OR REPLACE VIEW working_sessions AS
+CREATE VIEW working_sessions AS
 SELECT
   sl.member_id,
   sl.session_id,
@@ -64,7 +92,7 @@ WHERE sl.state = 'yellow'
   AND sl.session_id IS NOT NULL
 GROUP BY sl.member_id, sl.session_id;
 
-CREATE OR REPLACE VIEW daily_stats AS
+CREATE VIEW daily_stats AS
 WITH colors AS (
   SELECT
     sl.member_id,
@@ -148,7 +176,7 @@ LEFT JOIN session_totals s
   ON s.member_id = m.id
  AND s.day = d.day;
 
-CREATE OR REPLACE VIEW monthly_stats AS
+CREATE VIEW monthly_stats AS
 WITH month_colors AS (
   SELECT
     member_id,
@@ -214,3 +242,7 @@ LEFT JOIN session_totals s
   ON s.member_id = c.member_id
  AND s.year = c.year
  AND s.month = c.month;
+
+INSERT INTO schema_migrations (id)
+VALUES ('002_session_grouping')
+ON CONFLICT (id) DO NOTHING;

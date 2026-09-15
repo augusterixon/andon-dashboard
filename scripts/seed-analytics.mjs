@@ -97,7 +97,7 @@ async function main() {
   ]);
 
   const { rows: logs } = await sql`
-    SELECT name, state, duration_seconds, started_at, ended_at, session_id
+    SELECT name, state, duration_seconds, started_at, ended_at, session_id, session_start_time
     FROM state_log sl
     JOIN members m ON m.id = sl.member_id
     WHERE m.team_id = ${team.team_id}
@@ -106,8 +106,8 @@ async function main() {
   if (logs.length === 0) {
     throw new Error("state_log is empty — transitions were not recorded");
   }
-  if (logs.some((row) => row.state === "yellow" && !row.session_id)) {
-    throw new Error("yellow state_log rows should have a session_id");
+  if (logs.some((row) => !row.session_id || !row.session_start_time)) {
+    throw new Error("every state_log row should have session_id and session_start_time");
   }
 
   const today = await get(`/api/stats/today?team_id=${team.team_id}`);

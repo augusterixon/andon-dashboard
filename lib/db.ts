@@ -6,7 +6,7 @@ import {
   generateMemberName,
   normalizeInviteCode,
 } from "@/lib/ids";
-import { backfillSessionIds, refreshMemberSessionIds } from "@/lib/sessions";
+import { applySessionGroupingMigration, refreshMemberSessionIds } from "@/lib/sessions";
 import type { AndonState, MemberStatus, TeamStatus } from "@/lib/types";
 
 let schemaReady = false;
@@ -72,7 +72,8 @@ export async function ensureSchema() {
       started_at TIMESTAMPTZ NOT NULL,
       ended_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       duration_seconds INTEGER NOT NULL,
-      session_id UUID
+      session_id UUID,
+      session_start_time TIMESTAMPTZ
     )
   `;
 
@@ -84,70 +85,13 @@ export async function ensureSchema() {
   `;
   await sql`ALTER TABLE state_log ALTER COLUMN started_at SET DEFAULT NOW()`;
   await sql`ALTER TABLE state_log ALTER COLUMN started_at SET NOT NULL`;
-  await sql`ALTER TABLE state_log ADD COLUMN IF NOT EXISTS session_id UUID`;
 
   await sql`CREATE INDEX IF NOT EXISTS members_team_id_idx ON members (team_id)`;
   await sql`CREATE INDEX IF NOT EXISTS state_log_member_id_idx ON state_log (member_id)`;
   await sql`CREATE INDEX IF NOT EXISTS state_log_started_at_idx ON state_log (started_at)`;
   await sql`CREATE INDEX IF NOT EXISTS state_log_ended_at_idx ON state_log (ended_at)`;
-  await sql`CREATE INDEX IF NOT EXISTS state_log_session_id_idx ON state_log (session_id)`;
 
-  await sql`DROP VIEW IF EXISTS monthly_stats`;
-  await sql`DROP VIEW IF EXISTS daily_stats`;
-
-  await sql`
-    CREATE VIEW daily_stats AS
-    SELECT
-      m.id AS member_id,
-      m.team_id,
-      m.name AS member_name,
-      d.day,
-      COALESCE(SUM(d.yellow_seconds), 0)::bigint AS total_yellow,
-      COALESCE(SUM(d.red_seconds), 0)::bigint AS total_red,
-      COALESCE(SUM(d.green_seconds), 0)::bigint AS total_green
-    FROM members m
-    JOIN (
-      SELECT
-        sl.member_id,
-        gs::date AS day,
-        CASE WHEN sl.state = 'yellow' THEN clipped.seconds ELSE 0 END AS yellow_seconds,
-        CASE WHEN sl.state = 'red' THEN clipped.seconds ELSE 0 END AS red_seconds,
-        CASE WHEN sl.state = 'green' THEN clipped.seconds ELSE 0 END AS green_seconds
-      FROM state_log sl
-      CROSS JOIN LATERAL generate_series(
-        (sl.started_at AT TIME ZONE 'UTC')::date,
-        (sl.ended_at AT TIME ZONE 'UTC')::date,
-        INTERVAL '1 day'
-      ) AS gs
-      CROSS JOIN LATERAL (
-        SELECT GREATEST(
-          0,
-          FLOOR(EXTRACT(EPOCH FROM (
-            LEAST(sl.ended_at, ((gs::date + 1) AT TIME ZONE 'UTC'))
-            - GREATEST(sl.started_at, (gs::date AT TIME ZONE 'UTC'))
-          )))
-        )::int AS seconds
-      ) clipped
-    ) d ON d.member_id = m.id
-    GROUP BY m.id, m.team_id, m.name, d.day
-  `;
-
-  await sql`
-    CREATE VIEW monthly_stats AS
-    SELECT
-      member_id,
-      team_id,
-      member_name,
-      EXTRACT(YEAR FROM day)::int AS year,
-      EXTRACT(MONTH FROM day)::int AS month,
-      SUM(total_yellow)::bigint AS total_yellow,
-      SUM(total_red)::bigint AS total_red,
-      SUM(total_green)::bigint AS total_green
-    FROM daily_stats
-    GROUP BY member_id, team_id, member_name, EXTRACT(YEAR FROM day), EXTRACT(MONTH FROM day)
-  `;
-
-  await backfillSessionIds();
+  await applySessionGroupingMigration();
 
   schemaReady = true;
 }

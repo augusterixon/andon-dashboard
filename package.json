@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "migrate:sessions": "node scripts/migrate-session-grouping.mjs"
   },
   "dependencies": {
     "@vercel/postgres": "^0.10.0",

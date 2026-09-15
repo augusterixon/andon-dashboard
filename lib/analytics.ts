@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { sql } from "@vercel/postgres";
 import { assertTeamExists, ensureSchema } from "@/lib/db";
 import type {
@@ -9,7 +10,7 @@ import type {
   WorkPrompt,
   WorkSession,
 } from "@/lib/types";
-import { clusterPrompts } from "@/lib/sessions";
+import { SESSION_INACTIVITY_MS, clusterStateChanges } from "@/lib/sessions";
 
 type MemberRow = {
   id: string;
@@ -23,7 +24,8 @@ type ClosedRow = {
   total_yellow: string | number | bigint;
   total_red: string | number | bigint;
   total_green: string | number | bigint;
-  working_sessions: string | number | bigint;
+  session_count: string | number | bigint;
+  total_session_seconds: string | number | bigint;
 };
 
 type LastWorkingRow = {
@@ -34,9 +36,11 @@ type LastWorkingRow = {
 type SessionRow = {
   id: number;
   member_id: string;
+  state: AndonState;
   started_at: Date | string;
   ended_at: Date | string;
   session_id: string | null;
+  session_start_time: Date | string | null;
 };
 
 type ClosedTotals = {
@@ -103,43 +107,37 @@ async function getClosedPeriodStats(
   rangeStart: Date,
   rangeEnd: Date,
 ): Promise<Map<string, ClosedTotals>> {
-  const startIso = rangeStart.toISOString();
-  const endIso = rangeEnd.toISOString();
-  const { rows } = await sql<ClosedRow>`
-    SELECT
-      sl.member_id,
-      COALESCE(SUM(
-        CASE WHEN sl.state = 'yellow' THEN
-          GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (
-            LEAST(sl.ended_at, ${endIso}::timestamptz)
-            - GREATEST(sl.started_at, ${startIso}::timestamptz)
-          ))))
-        ELSE 0 END
-      ), 0)::bigint AS total_yellow,
-      COALESCE(SUM(
-        CASE WHEN sl.state = 'red' THEN
-          GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (
-            LEAST(sl.ended_at, ${endIso}::timestamptz)
-            - GREATEST(sl.started_at, ${startIso}::timestamptz)
-          ))))
-        ELSE 0 END
-      ), 0)::bigint AS total_red,
-      COALESCE(SUM(
-        CASE WHEN sl.state = 'green' THEN
-          GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (
-            LEAST(sl.ended_at, ${endIso}::timestamptz)
-            - GREATEST(sl.started_at, ${startIso}::timestamptz)
-          ))))
-        ELSE 0 END
-      ), 0)::bigint AS total_green,
-      COUNT(*) FILTER (WHERE sl.state = 'yellow')::int AS working_sessions
-    FROM state_log sl
-    JOIN members m ON m.id = sl.member_id
-    WHERE m.team_id = ${teamId}
-      AND sl.started_at < ${endIso}::timestamptz
-      AND sl.ended_at > ${startIso}::timestamptz
-    GROUP BY sl.member_id
-  `;
+  const isMonthRange =
+    rangeStart.getUTCDate() === 1 &&
+    rangeEnd.getTime() ===
+      Date.UTC(rangeStart.getUTCFullYear(), rangeStart.getUTCMonth() + 1, 1);
+
+  const { rows } = isMonthRange
+    ? await sql<ClosedRow>`
+        SELECT
+          member_id,
+          total_yellow,
+          total_red,
+          total_green,
+          session_count,
+          total_session_seconds
+        FROM monthly_stats
+        WHERE team_id = ${teamId}
+          AND year = ${rangeStart.getUTCFullYear()}
+          AND month = ${rangeStart.getUTCMonth() + 1}
+      `
+    : await sql<ClosedRow>`
+        SELECT
+          member_id,
+          total_yellow,
+          total_red,
+          total_green,
+          session_count,
+          total_session_seconds
+        FROM daily_stats
+        WHERE team_id = ${teamId}
+          AND day = ${rangeStart.toISOString().slice(0, 10)}::date
+      `;
 
   const closed = new Map<string, ClosedTotals>();
   for (const row of rows) {
@@ -147,7 +145,7 @@ async function getClosedPeriodStats(
       yellow: toSeconds(row.total_yellow),
       red: toSeconds(row.total_red),
       green: toSeconds(row.total_green),
-      working_sessions: toSeconds(row.working_sessions),
+      working_sessions: toSeconds(row.session_count),
     });
   }
   return closed;
@@ -281,6 +279,72 @@ export async function getMonthStats(
   return getPeriodActivity(teamId, start, end);
 }
 
+type SessionPrompt = {
+  id: number;
+  startedAt: number;
+  endedAt: number;
+  startedIso: string;
+  endedIso: string | null;
+};
+
+function toSessionPrompt(row: Pick<SessionRow, "id" | "started_at" | "ended_at">): SessionPrompt {
+  return {
+    id: row.id,
+    startedAt: new Date(row.started_at).getTime(),
+    endedAt: new Date(row.ended_at).getTime(),
+    startedIso: toIso(row.started_at) ?? new Date(row.started_at).toISOString(),
+    endedIso: toIso(row.ended_at),
+  };
+}
+
+function buildWorkSessions(
+  groups: Map<string, SessionPrompt[]>,
+  rangeStart: Date,
+  rangeEnd: Date,
+  openId: number,
+): WorkSession[] {
+  const sessions: WorkSession[] = [];
+
+  for (const [sessionId, prompts] of groups) {
+    const sorted = [...prompts].sort(
+      (a, b) => a.startedAt - b.startedAt || a.id - b.id,
+    );
+    const overlapping = sorted.filter(
+      (prompt) => prompt.startedAt < rangeEnd.getTime() && prompt.endedAt > rangeStart.getTime(),
+    );
+    if (overlapping.length === 0) continue;
+
+    const workStart = sorted[0].startedAt;
+    const workEnd = sorted[sorted.length - 1].endedAt;
+    const duration = overlapSeconds(
+      new Date(workStart),
+      new Date(workEnd),
+      rangeStart,
+      rangeEnd,
+    );
+    if (duration <= 0) continue;
+
+    const startedMs = Math.max(workStart, rangeStart.getTime());
+    const endedMs = Math.min(workEnd, rangeEnd.getTime());
+    const isOpen = overlapping[overlapping.length - 1]?.id === openId;
+    const workPrompts: WorkPrompt[] = overlapping.map((prompt) => ({
+      started_at: prompt.startedIso,
+      ended_at: prompt.id === openId ? null : prompt.endedIso,
+    }));
+
+    sessions.push({
+      session_id: sessionId,
+      started_at: new Date(startedMs).toISOString(),
+      ended_at: isOpen ? null : new Date(endedMs).toISOString(),
+      duration_seconds: duration,
+      prompt_count: workPrompts.length,
+      prompts: workPrompts,
+    });
+  }
+
+  return sessions.sort((a, b) => a.started_at.localeCompare(b.started_at));
+}
+
 async function getWorkingSessions(
   teamId: string,
   rangeStart: Date,
@@ -289,11 +353,17 @@ async function getWorkingSessions(
   now = new Date(),
 ): Promise<Map<string, WorkSession[]>> {
   const { rows } = await sql<SessionRow>`
-    SELECT sl.id, sl.member_id, sl.started_at, sl.ended_at, sl.session_id
+    SELECT
+      sl.id,
+      sl.member_id,
+      sl.state,
+      sl.started_at,
+      sl.ended_at,
+      sl.session_id,
+      sl.session_start_time
     FROM state_log sl
     JOIN members m ON m.id = sl.member_id
     WHERE m.team_id = ${teamId}
-      AND sl.state = 'yellow'
     ORDER BY sl.started_at ASC, sl.id ASC
   `;
 
@@ -308,75 +378,59 @@ async function getWorkingSessions(
   const result = new Map<string, WorkSession[]>();
 
   for (const member of members) {
-    const closed = byMember.get(member.id) ?? [];
-    const prompts = closed.map((row) => ({
-      id: row.id,
-      startedAt: new Date(row.started_at).getTime(),
-      endedAt: new Date(row.ended_at).getTime(),
-      startedIso: toIso(row.started_at) ?? new Date(row.started_at).toISOString(),
-      endedIso: toIso(row.ended_at),
-    }));
+    const logs = byMember.get(member.id) ?? [];
+    const groups = new Map<string, SessionPrompt[]>();
+    const ungroupedYellow: SessionPrompt[] = [];
+
+    for (const row of logs) {
+      if (row.state !== "yellow") continue;
+      const prompt = toSessionPrompt(row);
+      if (row.session_id) {
+        const list = groups.get(row.session_id) ?? [];
+        list.push(prompt);
+        groups.set(row.session_id, list);
+      } else {
+        ungroupedYellow.push(prompt);
+      }
+    }
+
+    if (ungroupedYellow.length > 0) {
+      const clusters = clusterStateChanges(ungroupedYellow);
+      for (const cluster of clusters) {
+        const list = cluster.promptIds
+          .map((id) => ungroupedYellow.find((prompt) => prompt.id === id))
+          .filter((prompt): prompt is SessionPrompt => Boolean(prompt));
+        groups.set(cluster.sessionId, list);
+      }
+    }
 
     if ((member.state ?? "green") === "yellow" && member.updated_at) {
       const started = new Date(member.updated_at).getTime();
       if (!Number.isNaN(started) && started < rangeEnd.getTime() && now.getTime() > rangeStart.getTime()) {
-        prompts.push({
+        const openPrompt: SessionPrompt = {
           id: openId,
           startedAt: started,
           endedAt: now.getTime(),
           startedIso: new Date(started).toISOString(),
           endedIso: null,
-        });
+        };
+        const lastLog = logs[logs.length - 1];
+        const lastStarted = lastLog ? new Date(lastLog.started_at).getTime() : Number.NaN;
+        if (
+          lastLog?.session_id &&
+          !Number.isNaN(lastStarted) &&
+          started - lastStarted < SESSION_INACTIVITY_MS
+        ) {
+          const list = groups.get(lastLog.session_id) ?? [];
+          list.push(openPrompt);
+          groups.set(lastLog.session_id, list);
+        } else {
+          groups.set(randomUUID(), [openPrompt]);
+        }
       }
     }
 
-    const clusters = clusterPrompts(
-      prompts.map((prompt) => ({
-        id: prompt.id,
-        startedAt: prompt.startedAt,
-        endedAt: prompt.endedAt,
-      })),
-    );
-    const promptById = new Map(prompts.map((prompt) => [prompt.id, prompt]));
-    const sessions: WorkSession[] = [];
-
-    for (const cluster of clusters) {
-      const clusterPromptsList = cluster.promptIds
-        .map((id) => promptById.get(id))
-        .filter((prompt): prompt is (typeof prompts)[number] => Boolean(prompt));
-      const overlapping = clusterPromptsList.filter(
-        (prompt) => prompt.startedAt < rangeEnd.getTime() && prompt.endedAt > rangeStart.getTime(),
-      );
-      if (overlapping.length === 0) continue;
-
-      const startedMs = Math.max(cluster.startedAt, rangeStart.getTime());
-      const endedMs = Math.min(cluster.endedAt, rangeEnd.getTime());
-      const last = overlapping[overlapping.length - 1];
-      const isOpen = last?.id === openId;
-      const duration = overlapSeconds(
-        new Date(cluster.startedAt),
-        new Date(cluster.endedAt),
-        rangeStart,
-        rangeEnd,
-      );
-      if (duration <= 0) continue;
-
-      const workPrompts: WorkPrompt[] = overlapping.map((prompt) => ({
-        started_at: prompt.startedIso,
-        ended_at: prompt.id === openId ? null : prompt.endedIso,
-      }));
-
-      sessions.push({
-        session_id: cluster.sessionId,
-        started_at: new Date(startedMs).toISOString(),
-        ended_at: isOpen ? null : new Date(endedMs).toISOString(),
-        duration_seconds: duration,
-        prompt_count: workPrompts.length,
-        prompts: workPrompts,
-      });
-    }
-
-    result.set(member.id, sessions);
+    result.set(member.id, buildWorkSessions(groups, rangeStart, rangeEnd, openId));
   }
 
   return result;
