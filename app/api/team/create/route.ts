@@ -22,6 +22,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       team_id: team.id,
       invite_code: team.invite_code,
+      team_name: name,
     });
   } catch (error) {
     return handleRouteError(error);

@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { AndonInviteCta } from "@/components/AndonInviteCta";
+import { TeamInviteShare } from "@/components/TeamInviteShare";
 import {
   formatClock,
   formatSeconds,
@@ -24,13 +26,14 @@ type Member = {
   created_at: string;
 };
 
-type Tab = "live" | "leaderboard";
+type Tab = "live" | "leaderboard" | "invite";
 
 const TAB_STORAGE_KEY = "andon.dashboardTab";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "live", label: "Live" },
   { id: "leaderboard", label: "Leaderboard" },
+  { id: "invite", label: "Invite" },
 ];
 
 const STATE_DOT: Record<AndonState, string> = {
@@ -69,6 +72,7 @@ type StatsPayload = {
 type Props = {
   teamId: string;
   teamName: string;
+  inviteCode: string;
   members: Member[] | null;
   error: string | null;
   andonConfigured: boolean;
@@ -79,6 +83,7 @@ function readStoredTab(): Tab {
   try {
     const value = window.localStorage.getItem(TAB_STORAGE_KEY);
     if (value === "live") return "live";
+    if (value === "invite") return "invite";
     if (value === "leaderboard" || value === "today" || value === "month") {
       return "leaderboard";
     }
@@ -116,6 +121,7 @@ function toMemberStats(member: NonNullable<StatsPayload["members"]>[number]): Me
 export function AnalyticsView({
   teamId,
   teamName,
+  inviteCode,
   members,
   error,
   andonConfigured,
@@ -183,6 +189,8 @@ export function AnalyticsView({
       }
     }
 
+    if (tab === "invite") return;
+
     load();
     const refresh = window.setInterval(load, 15000);
     return () => {
@@ -240,6 +248,12 @@ export function AnalyticsView({
 
       {tab === "live" ? (
         <LiveBoard members={members} todayById={todayById} />
+      ) : tab === "invite" ? (
+        <InvitePanel
+          inviteCode={inviteCode}
+          teamId={teamId}
+          teamName={teamName || "Team"}
+        />
       ) : board && boardPeriod === period ? (
         <LeaderboardPanel board={board} period={period} onPeriod={setPeriod} />
       ) : tabError ? (
@@ -247,6 +261,41 @@ export function AnalyticsView({
       ) : (
         <p className="text-sm text-muted">Loading…</p>
       )}
+    </div>
+  );
+}
+
+function InvitePanel({
+  inviteCode,
+  teamId,
+  teamName,
+}: {
+  inviteCode: string;
+  teamId: string;
+  teamName: string;
+}) {
+  if (!inviteCode) {
+    return <p className="text-sm text-muted">Loading invite…</p>;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-lg font-medium">Invite</h2>
+        <p className="mt-1 text-sm text-muted">
+          Share the code or link so others can join this team.
+        </p>
+      </div>
+      <TeamInviteShare
+        inviteCode={inviteCode}
+        teamId={teamId}
+        teamName={teamName}
+      />
+      <AndonInviteCta
+        inviteCode={inviteCode}
+        teamId={teamId}
+        teamName={teamName}
+      />
     </div>
   );
 }
@@ -310,7 +359,7 @@ function LiveBoard({
   if (members.length === 0) {
     return (
       <div className="rounded-2xl border border-border bg-surface px-5 py-10 text-center">
-        <p className="text-sm text-muted">No members yet. Share the invite code.</p>
+        <p className="text-sm text-muted">No members yet. Share the invite from the Invite tab.</p>
       </div>
     );
   }

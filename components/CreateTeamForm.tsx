@@ -6,6 +6,7 @@ import { useState } from "react";
 type CreatedTeam = {
   team_id: string;
   invite_code: string;
+  team_name: string;
 };
 
 export function CreateTeamForm() {
@@ -30,7 +31,11 @@ export function CreateTeamForm() {
       if (!response.ok) {
         throw new Error(data.error || "Could not create team");
       }
-      setCreated({ team_id: data.team_id, invite_code: data.invite_code });
+      setCreated({
+        team_id: data.team_id,
+        invite_code: data.invite_code,
+        team_name: data.team_name || name.trim(),
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create team");
     } finally {
@@ -40,13 +45,18 @@ export function CreateTeamForm() {
 
   async function copyInviteLink(code: string) {
     const url = `${window.location.origin}/join?code=${code}`;
-    await navigator.clipboard.writeText(url);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
   }
 
   if (created) {
     const joinHref = `/join?code=${created.invite_code}`;
+    const boardHref = `/dashboard?team_id=${encodeURIComponent(created.team_id)}`;
 
     return (
       <div className="rounded-2xl border border-border bg-surface p-6">
@@ -63,13 +73,19 @@ export function CreateTeamForm() {
             onClick={() => copyInviteLink(created.invite_code)}
             className="rounded-xl border border-border px-4 py-2 text-sm hover:bg-surface-2"
           >
-            {copied ? "Copied" : "Copy invite link"}
+            {copied ? "Copied" : "Copy web invite link"}
           </button>
           <Link
             href={joinHref}
-            className="rounded-xl bg-foreground px-4 py-2 text-center text-sm font-medium text-background hover:opacity-90"
+            className="rounded-xl border border-border px-4 py-2 text-center text-sm hover:bg-surface-2"
           >
-            Join this team
+            Join in the browser
+          </Link>
+          <Link
+            href={boardHref}
+            className="rounded-xl border border-border px-4 py-2 text-center text-sm hover:bg-surface-2"
+          >
+            View team board
           </Link>
         </div>
       </div>

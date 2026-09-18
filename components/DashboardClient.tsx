@@ -22,6 +22,7 @@ type StatusResponse = {
 export function DashboardClient({ teamId }: { teamId: string }) {
   const [members, setMembers] = useState<Member[] | null>(null);
   const [teamName, setTeamName] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [andonConfigured, setAndonConfigured] = useState(() =>
     consumeAndonConfiguredFlash(),
@@ -49,6 +50,7 @@ export function DashboardClient({ teamId }: { teamId: string }) {
         if (cancelled) return;
         setMembers(Array.isArray(data.members) ? data.members : []);
         setTeamName(data.team?.name ?? "Team");
+        setInviteCode(data.team?.invite_code ?? "");
         setError(null);
       } catch (err) {
         if (!cancelled) {
@@ -73,6 +75,7 @@ export function DashboardClient({ teamId }: { teamId: string }) {
     <AnalyticsView
       teamId={teamId}
       teamName={teamName}
+      inviteCode={inviteCode}
       members={members}
       error={error}
       andonConfigured={andonConfigured}
