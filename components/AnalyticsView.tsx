@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { AndonInviteCta } from "@/components/AndonInviteCta";
 import { TeamInviteShare } from "@/components/TeamInviteShare";
+import type { AndonTrackingState } from "@/lib/andon-local";
 import {
   formatClock,
   formatSeconds,
@@ -75,7 +76,7 @@ type Props = {
   inviteCode: string;
   members: Member[] | null;
   error: string | null;
-  andonConfigured: boolean;
+  andonTracking: AndonTrackingState | null;
 };
 
 function readStoredTab(): Tab {
@@ -124,7 +125,7 @@ export function AnalyticsView({
   inviteCode,
   members,
   error,
-  andonConfigured,
+  andonTracking,
 }: Props) {
   const [tab, setTab] = useState<Tab>("live");
   const [tabReady, setTabReady] = useState(false);
@@ -211,9 +212,13 @@ export function AnalyticsView({
           <h1 className="text-3xl font-semibold tracking-tight">
             {teamName || "Team status"}
           </h1>
-          {andonConfigured ? (
+          {andonTracking === "tracking" ? (
             <p className="rounded-full border border-andon-green/30 bg-andon-green/10 px-3 py-1 text-xs text-andon-green">
               Andon is tracking this team
+            </p>
+          ) : andonTracking === "offline" ? (
+            <p className="rounded-full border border-border bg-surface px-3 py-1 text-xs text-muted">
+              Andon is not tracking this team
             </p>
           ) : null}
         </div>

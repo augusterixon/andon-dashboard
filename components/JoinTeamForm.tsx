@@ -58,7 +58,7 @@ export function JoinTeamForm({ initialCode }: { initialCode: string }) {
         team_name: data.team_name,
       });
       if (configured) {
-        writeAndonConfiguredFlash();
+        writeAndonConfiguredFlash(data.team_id);
       }
 
       router.push(`/dashboard?team_id=${data.team_id}`);

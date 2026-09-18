@@ -2,7 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { AnalyticsView } from "@/components/AnalyticsView";
-import { consumeAndonConfiguredFlash } from "@/lib/andon-local";
+import {
+  consumeAndonConfiguredFlash,
+  fetchLocalAndonStatus,
+  readTrackedTeam,
+  writeTrackedTeam,
+  type AndonTrackingState,
+} from "@/lib/andon-local";
 import type { AndonState } from "@/lib/types";
 
 type Member = {
@@ -24,15 +30,41 @@ export function DashboardClient({ teamId }: { teamId: string }) {
   const [teamName, setTeamName] = useState("");
   const [inviteCode, setInviteCode] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [andonConfigured, setAndonConfigured] = useState(() =>
-    consumeAndonConfiguredFlash(),
+  const [andonTracking, setAndonTracking] = useState<AndonTrackingState | null>(
+    () =>
+      consumeAndonConfiguredFlash() || readTrackedTeam() === teamId
+        ? "tracking"
+        : null,
   );
 
   useEffect(() => {
-    if (!andonConfigured) return;
-    const hide = window.setTimeout(() => setAndonConfigured(false), 4000);
-    return () => window.clearTimeout(hide);
-  }, [andonConfigured]);
+    let cancelled = false;
+
+    async function pollAndon() {
+      const status = await fetchLocalAndonStatus();
+      if (cancelled) return;
+
+      if (!status.running) {
+        setAndonTracking("offline");
+        return;
+      }
+
+      if (status.reportsTeam) {
+        if (status.teamId) writeTrackedTeam(status.teamId);
+        setAndonTracking(status.teamId === teamId ? "tracking" : "offline");
+        return;
+      }
+
+      setAndonTracking("tracking");
+    }
+
+    pollAndon();
+    const interval = window.setInterval(pollAndon, 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [teamId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -78,7 +110,7 @@ export function DashboardClient({ teamId }: { teamId: string }) {
       inviteCode={inviteCode}
       members={members}
       error={error}
-      andonConfigured={andonConfigured}
+      andonTracking={andonTracking}
     />
   );
 }
